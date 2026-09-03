@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export CARGO_HOME = $(CURDIR)/debian/.cargo
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	cargo vendor vendor > .cargo/config.toml
+
+override_dh_auto_build:
+	cargo build --frozen --release
+
+override_dh_auto_test:
+	cargo test --frozen --release
+
+override_dh_auto_install:
+	install -D -m 0755 target/release/nostr-faucet \
+	  debian/nostr-faucet/usr/bin/nostr-faucet
+	install -D -m 0644 faucet.example.toml \
+	  debian/nostr-faucet/usr/share/doc/nostr-faucet/faucet.example.toml
+
+override_dh_auto_clean:
+	rm -rf vendor .cargo/config.toml debian/.cargo target
