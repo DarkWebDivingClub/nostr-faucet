@@ -54,6 +54,18 @@ pub async fn run(cfg: Config) -> Result<()> {
         status.block_height,
         status.spendable_sat
     );
+    // Checked here rather than discovered on somebody's first request. A
+    // faucet that cannot pay should say so while somebody is watching it
+    // start, and say what to do about it.
+    if let Err(why) = node.can_pay_fees().await {
+        tracing::error!(
+            "{}: this node cannot fund a payment, so every request will fail — {why}. \
+             If that mentions fee estimation, set fallbackfee in its bitcoin.conf and \
+             restart it; a chain with no transaction history cannot estimate one.",
+            node.chain_label
+        );
+    }
+
     if status.spendable_sat == 0 {
         tracing::warn!(
             "{}: the miner wallet is empty. Requests will be refused with that reason \
