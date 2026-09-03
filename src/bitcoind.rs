@@ -104,6 +104,38 @@ impl Bitcoind {
         })
     }
 
+    /// Can this wallet actually pay?
+    ///
+    /// A chain with no transaction history cannot estimate a fee, and
+    /// without `fallbackfee` every spend fails — which is a thing to learn
+    /// at startup, not on somebody's first request. The system test for
+    /// 11.1 found exactly this: the server was correct and the deployment
+    /// could not move a coin.
+    ///
+    /// There is no RPC that reports whether `fallbackfee` is set, and
+    /// `estimatesmartfee` fails on a quiet chain whether it is or not — so
+    /// asking either of those gives a false answer. Instead this funds a
+    /// transaction it never signs or broadcasts, which is the same fee
+    /// selection a real payment does.
+    pub async fn can_pay_fees(&self) -> Result<(), String> {
+        let addr = match self.call("getnewaddress", json!([])).await {
+            Ok(a) => a.as_str().unwrap_or_default().to_string(),
+            Err(e) => return Err(format!("could not get an address to probe with: {e}")),
+        };
+        let raw = match self
+            .call("createrawtransaction", json!([[], {addr: 0.0001}]))
+            .await
+        {
+            Ok(r) => r.as_str().unwrap_or_default().to_string(),
+            Err(e) => return Err(format!("could not build a probe transaction: {e}")),
+        };
+        // Funds it — choosing inputs and a fee — but never signs or sends.
+        match self.call("fundrawtransaction", json!([raw])).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
     /// Pay an address. The only method here that moves money.
     pub async fn send_to_address(&self, address: &str, amount_sat: u64) -> Result<String> {
         let btc = amount_sat as f64 / 100_000_000.0;
