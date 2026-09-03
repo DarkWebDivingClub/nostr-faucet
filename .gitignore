@@ -1,4 +1,5 @@
 /target
 /vendor
-/debian/.cargo
 /.cargo/config.toml
+# master holds source only; debian/ lives on the packaging branch.
+/debian

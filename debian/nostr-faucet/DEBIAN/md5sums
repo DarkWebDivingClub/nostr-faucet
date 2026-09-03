@@ -1,5 +1,0 @@
-1d598836d3c30ddc6c725381f5e5c5e6  usr/bin/nostr-faucet
-c74fef2642afa3f0d054b1e332b93302  usr/lib/systemd/system/nostr-faucet@.service
-59e778ef5b135be386f1aaa55ad612b6  usr/share/doc/nostr-faucet/changelog.Debian.gz
-7380dc4b8566abedf27f7f4a46d57393  usr/share/doc/nostr-faucet/copyright
-1bc160aa6c89959876ab28fa7de48a84  usr/share/doc/nostr-faucet/faucet.example.toml
