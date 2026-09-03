@@ -1,94 +1,72 @@
-//! The quota ledger.
+//! Live buckets, one pair per key plus one for the faucet.
 //!
-//! Records what was asked and what was paid, per key and in total, inside a
-//! rolling window. Held in memory: the window is short relative to how long
-//! a faucet stays up, and a restart forgiving everyone's quota is a better
-//! failure than a faucet that will not start because its ledger is corrupt.
+//! A key's buckets are created full the first time it asks, from whichever
+//! rule applies to it — its grant, or the default. That is the right
+//! default: a key nobody has seen has spent nothing.
 //!
-//! Requests are recorded whether or not they were paid, because a refused
-//! flood still costs the faucet and the relay.
+//! Held in memory. The window is short relative to how long a faucet stays
+//! up, and a restart forgiving everyone's quota is a better failure than a
+//! faucet that will not start because its ledger is corrupt.
 
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy)]
-struct Entry {
-    at: u64,
-    paid_sat: u64,
+use crate::rate_limit::{Bucket, RateLimitRule};
+
+pub struct Buckets {
+    quota: HashMap<String, Bucket>,
+    rate: HashMap<String, Bucket>,
+    total: Bucket,
 }
 
-#[derive(Debug, Default)]
-pub struct Ledger {
-    per_key: HashMap<String, Vec<Entry>>,
-}
-
-impl Ledger {
-    pub fn new() -> Self {
-        Self::default()
+impl Buckets {
+    pub fn new(total_rule: &RateLimitRule, now_micros: u64) -> Self {
+        Self {
+            quota: HashMap::new(),
+            rate: HashMap::new(),
+            total: Bucket::full(total_rule, now_micros),
+        }
     }
 
-    /// Record an attempt. `paid_sat` is zero for a refusal, which still
-    /// counts against the request rate.
-    pub fn record(&mut self, key: &str, paid_sat: u64, now: u64) {
-        self.per_key.entry(key.to_string()).or_default().push(Entry { at: now, paid_sat });
+    pub fn quota_for(&mut self, key: &str, rule: &RateLimitRule, now: u64) -> &Bucket {
+        self.quota.entry(key.to_string()).or_insert_with(|| Bucket::full(rule, now))
     }
 
-    /// Drop everything older than the window, so the map does not grow
-    /// without bound on a long-running faucet.
-    pub fn prune(&mut self, window_secs: u64, now: u64) {
-        let cutoff = now.saturating_sub(window_secs);
-        self.per_key.retain(|_, entries| {
-            entries.retain(|e| e.at > cutoff);
-            !entries.is_empty()
-        });
+    pub fn rate_for(&mut self, key: &str, rule: &RateLimitRule, now: u64) -> &Bucket {
+        self.rate.entry(key.to_string()).or_insert_with(|| Bucket::full(rule, now))
     }
 
-    pub fn requests_in_window(&self, key: &str, window_secs: u64, now: u64) -> u32 {
-        let cutoff = now.saturating_sub(window_secs);
-        self.per_key
-            .get(key)
-            .map(|es| es.iter().filter(|e| e.at > cutoff).count() as u32)
-            .unwrap_or(0)
+    pub fn total(&self) -> &Bucket {
+        &self.total
     }
 
-    pub fn paid_to_key_in_window(&self, key: &str, window_secs: u64, now: u64) -> u64 {
-        let cutoff = now.saturating_sub(window_secs);
-        self.per_key
-            .get(key)
-            .map(|es| es.iter().filter(|e| e.at > cutoff).map(|e| e.paid_sat).sum())
-            .unwrap_or(0)
+    /// A request was made. Counted whether or not it was paid, because a
+    /// refused flood still costs the faucet and the relay a round trip.
+    pub fn charge_request(&mut self, key: &str, rule: &RateLimitRule, now: u64) {
+        self.rate
+            .entry(key.to_string())
+            .or_insert_with(|| Bucket::full(rule, now))
+            .withdraw(1, now, rule);
     }
 
-    pub fn paid_out_in_window(&self, window_secs: u64, now: u64) -> u64 {
-        let cutoff = now.saturating_sub(window_secs);
-        self.per_key
-            .values()
-            .flat_map(|es| es.iter())
-            .filter(|e| e.at > cutoff)
-            .map(|e| e.paid_sat)
-            .sum()
+    /// Coins actually moved. Charged only after the payment succeeded, so a
+    /// failed payment does not consume somebody's allowance.
+    pub fn charge_payment(
+        &mut self,
+        key: &str,
+        amount: u64,
+        quota_rule: &RateLimitRule,
+        total_rule: &RateLimitRule,
+        now: u64,
+    ) {
+        self.quota
+            .entry(key.to_string())
+            .or_insert_with(|| Bucket::full(quota_rule, now))
+            .withdraw(amount, now, quota_rule);
+        self.total.withdraw(amount, now, total_rule);
     }
 
-    /// When this key's oldest entry falls out of the window. Used to tell an
-    /// asker when to come back rather than leaving them to guess.
-    pub fn key_window_resets_in(&self, key: &str, window_secs: u64, now: u64) -> u64 {
-        let cutoff = now.saturating_sub(window_secs);
-        self.per_key
-            .get(key)
-            .and_then(|es| es.iter().filter(|e| e.at > cutoff).map(|e| e.at).min())
-            .map(|oldest| (oldest + window_secs).saturating_sub(now))
-            .unwrap_or(0)
-    }
-
-    pub fn global_window_resets_in(&self, window_secs: u64, now: u64) -> u64 {
-        let cutoff = now.saturating_sub(window_secs);
-        self.per_key
-            .values()
-            .flat_map(|es| es.iter())
-            .filter(|e| e.at > cutoff && e.paid_sat > 0)
-            .map(|e| e.at)
-            .min()
-            .map(|oldest| (oldest + window_secs).saturating_sub(now))
-            .unwrap_or(0)
+    pub fn keys_seen(&self) -> usize {
+        self.quota.len().max(self.rate.len())
     }
 }
 
@@ -96,38 +74,34 @@ impl Ledger {
 mod tests {
     use super::*;
 
-    #[test]
-    fn refusals_count_against_rate_but_not_quota() {
-        let mut l = Ledger::new();
-        l.record("alice", 0, 100);
-        l.record("alice", 0, 101);
-        assert_eq!(l.requests_in_window("alice", 60, 110), 2);
-        assert_eq!(l.paid_to_key_in_window("alice", 60, 110), 0);
+    const COIN: u64 = 100_000_000;
+
+    fn rule() -> RateLimitRule {
+        RateLimitRule { rate_per_micro: 0, max_capacity: COIN as i64 }
     }
 
     #[test]
-    fn the_window_rolls() {
-        let mut l = Ledger::new();
-        l.record("alice", 500, 100);
-        assert_eq!(l.paid_to_key_in_window("alice", 60, 130), 500);
-        // 100 is now outside a 60s window ending at 200
-        assert_eq!(l.paid_to_key_in_window("alice", 60, 200), 0);
+    fn a_new_key_starts_with_a_full_allowance() {
+        let r = rule();
+        let mut b = Buckets::new(&r, 0);
+        assert!(b.quota_for("newcomer", &r, 0).can_withdraw(COIN, 0, &r));
     }
 
     #[test]
-    fn the_cap_counts_every_key() {
-        let mut l = Ledger::new();
-        l.record("alice", 500, 100);
-        l.record("bob", 700, 101);
-        assert_eq!(l.paid_out_in_window(60, 110), 1200);
+    fn a_failed_payment_does_not_consume_an_allowance() {
+        // charge_payment is only called after bitcoind says yes.
+        let r = rule();
+        let mut b = Buckets::new(&r, 0);
+        b.charge_request("alice", &r, 0);
+        assert!(b.quota_for("alice", &r, 0).can_withdraw(COIN, 0, &r));
     }
 
     #[test]
-    fn pruning_keeps_the_map_bounded() {
-        let mut l = Ledger::new();
-        l.record("alice", 500, 100);
-        l.prune(60, 500);
-        assert_eq!(l.paid_out_in_window(60, 500), 0);
-        assert!(l.per_key.is_empty());
+    fn a_payment_charges_both_the_key_and_the_faucet() {
+        let r = rule();
+        let mut b = Buckets::new(&r, 0);
+        b.charge_payment("alice", COIN, &r, &r, 0);
+        assert!(!b.quota_for("alice", &r, 0).can_withdraw(1, 0, &r));
+        assert!(!b.total().can_withdraw(1, 0, &r));
     }
 }

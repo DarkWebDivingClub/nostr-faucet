@@ -8,6 +8,8 @@ pub mod bitcoind;
 pub mod client;
 pub mod config;
 pub mod control;
+pub mod grants;
+pub mod rate_limit;
 pub mod policy;
 pub mod server;
 pub mod state;

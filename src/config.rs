@@ -6,6 +6,8 @@
 //! `total_cap_sat` to a few coins, and exhausts both inside one run.
 
 use anyhow::{Context, Result};
+use crate::grants::UsageProfile;
+use crate::rate_limit::RateLimitRule;
 use serde::Deserialize;
 use std::path::Path;
 
@@ -49,26 +51,23 @@ fn default_rpc_host() -> String {
     "127.0.0.1".to_string()
 }
 
+/// The faucet's default policy.
+///
+/// `default_profile` is applied to any key with no grant of its own, which
+/// is what makes the policy open. Remove it and the faucet becomes a
+/// whitelist: a key with no grant has no allowance.
+///
+/// Per-key configuration otherwise arrives as kind-30078 grants, per NCC —
+/// this service does not invent a way to set it.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PolicyConfig {
-    /// What one key may take per window.
-    pub per_key_sat: u64,
-    /// The window, in seconds. A week in production; seconds in tests.
-    pub window_secs: u64,
-    /// What the faucet will pay out in total per window, across every key.
+    /// Applied to keys without a grant. Omit to require a grant.
+    pub default_profile: Option<UsageProfile>,
+    /// What the faucet pays out in total, across every key.
     ///
-    /// **This is the control that matters.** A per-key quota is advisory
-    /// against anyone willing to generate keys, which costs nothing on
-    /// Nostr. The cap bounds the damage regardless, and is refused even to
-    /// a key inside its own quota.
-    pub total_cap_sat: u64,
-    /// Requests one key may make per window, paid or refused.
-    ///
-    /// Payout limits do not bound a script that asks a thousand times and
-    /// is refused a thousand times — that still costs the faucet and the
-    /// relay a thousand round trips.
-    pub max_requests_per_window: u32,
-    /// Start paused. The control key can unpause without a restart.
+    /// The control that matters: a per-key quota is advisory against anyone
+    /// willing to generate keys, which costs nothing on Nostr.
+    pub total_cap: RateLimitRule,
     #[serde(default)]
     pub paused: bool,
 }
@@ -84,19 +83,16 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(self.policy.window_secs > 0, "policy.window_secs must be > 0");
-        anyhow::ensure!(self.policy.per_key_sat > 0, "policy.per_key_sat must be > 0");
         anyhow::ensure!(
-            self.policy.total_cap_sat >= self.policy.per_key_sat,
-            "policy.total_cap_sat ({}) is below per_key_sat ({}) — no request could ever \
-             succeed, since the first payout would exceed the cap",
-            self.policy.total_cap_sat,
-            self.policy.per_key_sat
+            self.policy.total_cap.max_capacity > 0,
+            "policy.total_cap.max_capacity must be > 0, or no request could ever succeed"
         );
-        anyhow::ensure!(
-            self.policy.max_requests_per_window > 0,
-            "policy.max_requests_per_window must be > 0"
-        );
+        if self.policy.default_profile.is_none() {
+            tracing::warn!(
+                "no policy.default_profile — this faucet will refuse every key that does \
+                 not hold a grant. That is the whitelist model; set one to be open."
+            );
+        }
         if self.bitcoind.rpc_host != "127.0.0.1" && self.bitcoind.rpc_host != "localhost" {
             tracing::warn!(
                 "bitcoind.rpc_host is {} — this connection can spend the miner's wallet \

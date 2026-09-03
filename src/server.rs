@@ -19,19 +19,23 @@ use tokio::sync::Mutex;
 
 use crate::bitcoind::Bitcoind;
 use crate::config::Config;
+use crate::grants::Grants;
 use crate::policy::{self, Denial};
-use crate::state::Ledger;
+use crate::rate_limit::RateLimitRule;
+use crate::state::Buckets;
 
 pub struct Faucet {
     pub cfg: Mutex<Config>,
     pub node: Bitcoind,
-    pub ledger: Mutex<Ledger>,
+    pub buckets: Mutex<Buckets>,
+    /// Per-key allowances, as published by the owner. Per NCC.
+    pub grants: Mutex<Grants>,
 }
 
-fn now_secs() -> u64 {
+pub fn now_micros() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
+        .map(|d| d.as_micros() as u64)
         .unwrap_or(0)
 }
 
@@ -75,10 +79,12 @@ pub async fn run(cfg: Config) -> Result<()> {
     }
 
     let relay = cfg.nostr.relay.clone();
+    let buckets = Buckets::new(&cfg.policy.total_cap, now_micros());
     let faucet = Arc::new(Faucet {
         cfg: Mutex::new(cfg),
         node,
-        ledger: Mutex::new(Ledger::new()),
+        buckets: Mutex::new(buckets),
+        grants: Mutex::new(Grants::new()),
     });
 
     let client = Client::builder().signer(keys.clone()).build();
@@ -101,12 +107,23 @@ pub async fn run(cfg: Config) -> Result<()> {
         .since(Timestamp::now());
     client.subscribe(control_filter).await?;
 
+    // Per-key allowances, published by the owner as kind-30078. No `since`:
+    // a grant issued before this faucet started is still in force, and a
+    // faucet that forgot everyone's allowance on restart would be wrong.
+    let grants_filter = Filter::new().kind(Kind::Custom(30078)).pubkey(our_pubkey);
+    client.subscribe(grants_filter).await?;
+
     let mut notifications = client.notifications();
     while let Some(notification) = notifications.next().await {
         if let ClientNotification::Event { event, .. } = notification {
             let event = event.as_ref();
             let is_wallet = event.kind == Kind::WalletConnectRequest;
             let is_control = event.kind == Kind::Custom(crate::control::CONTROL_REQUEST_KIND);
+            let is_grant = event.kind == Kind::Custom(30078);
+            if is_grant {
+                faucet.grants.lock().await.apply(&our_pubkey.to_hex(), event);
+                continue;
+            }
             if !is_wallet && !is_control {
                 continue;
             }
@@ -238,18 +255,40 @@ async fn pay_bip321(faucet: &Faucet, asker: &str, uri_str: &str) -> Response {
     };
     let amount_sat = amount.to_sat();
 
-    let now = now_secs();
+    let now = now_micros();
     let cfg = faucet.cfg.lock().await.clone();
 
-    // The single decision point. Record the attempt whether or not it is
-    // paid, so a refused flood still counts against the rate limit.
+    // The key's own grant, or the default that makes this faucet open.
+    // `None` means no allowance at all — the whitelist case.
+    let granted = faucet.grants.lock().await.get(asker).cloned();
+    let profile = granted.as_ref().or(cfg.policy.default_profile.as_ref());
+
+    // Rules to size a new key's buckets with. A key nobody has seen has
+    // spent nothing, so its buckets start full.
+    let quota_rule = profile
+        .and_then(|p| p.quota.clone())
+        .unwrap_or(RateLimitRule { rate_per_micro: 0, max_capacity: 0 });
+    let rate_rule = profile
+        .and_then(|p| p.access_rate.clone())
+        .unwrap_or(RateLimitRule { rate_per_micro: 0, max_capacity: i64::MAX });
+
     let decision = {
-        let mut ledger = faucet.ledger.lock().await;
-        ledger.prune(cfg.policy.window_secs, now);
-        let d = policy::decide(asker, amount_sat, &cfg.policy, &ledger, now);
-        if d.is_err() {
-            ledger.record(asker, 0, now);
-        }
+        let mut b = faucet.buckets.lock().await;
+        let q = b.quota_for(asker, &quota_rule, now).clone();
+        let r = b.rate_for(asker, &rate_rule, now).clone();
+        let t = b.total().clone();
+        let d = policy::decide(&policy::Request {
+            paused: cfg.policy.paused,
+            amount_sat,
+            now_micros: now,
+            profile,
+            quota_bucket: &q,
+            rate_bucket: &r,
+            total_bucket: &t,
+            total_rule: &cfg.policy.total_cap,
+        });
+        // Every attempt costs a round trip, paid or not.
+        b.charge_request(asker, &rate_rule, now);
         d
     };
 
@@ -257,7 +296,7 @@ async fn pay_bip321(faucet: &Faucet, asker: &str, uri_str: &str) -> Response {
         tracing::info!("refusing {asker}: {}", denial.message());
         let code = match denial {
             Denial::Paused => ErrorCode::Other,
-            Denial::AmountTooLarge { .. } => ErrorCode::Other,
+            Denial::NotGranted => ErrorCode::Unauthorized,
             _ => ErrorCode::RateLimited,
         };
         return err_response(Method::PayBip321, code, &denial.message());
@@ -265,7 +304,15 @@ async fn pay_bip321(faucet: &Faucet, asker: &str, uri_str: &str) -> Response {
 
     match faucet.node.send_to_address(address, amount_sat).await {
         Ok(txid) => {
-            faucet.ledger.lock().await.record(asker, amount_sat, now);
+            // Charged only now: a failed payment must not consume an
+            // allowance somebody never received.
+            faucet.buckets.lock().await.charge_payment(
+                asker,
+                amount_sat,
+                &quota_rule,
+                &cfg.policy.total_cap,
+                now,
+            );
             tracing::info!(
                 "paid {amount_sat} sat to {address} for {asker} on {} — {txid}",
                 faucet.node.chain_label
@@ -282,7 +329,6 @@ async fn pay_bip321(faucet: &Faucet, asker: &str, uri_str: &str) -> Response {
             }
         }
         Err(e) => {
-            // The attempt is already recorded against the rate limit above.
             tracing::warn!("payment failed for {asker}: {e:#}");
             err_response(
                 Method::PayBip321,

@@ -26,20 +26,38 @@ wallet = "signer"
 chain_label = "btk.signet"
 
 [policy]
-# One coin a week per key.
-per_key_sat = 100000000
-window_secs = 604800
-
-# What the faucet pays out in total per window, across every key.
+# The allowance a key gets when it holds no grant of its own. This is what
+# makes the faucet open: a stranger is treated as if granted it. Remove the
+# whole [policy.default_profile] section and the faucet becomes a
+# whitelist — a key with no grant has no allowance.
 #
-# This is the control that matters. A per-key quota is advisory against
-# anyone willing to generate keys, which costs nothing on Nostr. This bounds
-# the damage regardless, and is refused even to a key inside its own quota.
-total_cap_sat = 5000000000
+# Per-key allowances otherwise arrive as kind-30078 grants, per NCC. This
+# service does not invent a way to set them.
 
-# Requests one key may make per window, paid or refused. A script that asks
-# a thousand times and is refused a thousand times still costs a thousand
-# round trips.
-max_requests_per_window = 20
+[policy.default_profile.quota]
+# NOTE: rate_per_micro is an integer number of sats per MICROSECOND, so it
+# cannot express a weekly refill. One coin a week is 0.000165 sat/us, which
+# truncates to 0 — the smallest non-zero rate expressible is a million sat
+# a second.
+#
+# So this reads as "one coin, until the operator republishes the grant",
+# and the faucet's refusal says exactly that rather than promising a refill
+# that never arrives.
+rate_per_micro = 0
+max_capacity = 100000000
 
+[policy.default_profile.access_rate]
+# Requests, paid or refused. A script that asks a thousand times and is
+# refused a thousand times still costs a thousand round trips.
+rate_per_micro = 0
+max_capacity = 20
+
+[policy.total_cap]
+# What the faucet pays out in total, across every key. The control that
+# matters: a per-key quota is advisory against anyone willing to generate
+# keys, which costs nothing on Nostr.
+rate_per_micro = 0
+max_capacity = 10000000000
+
+[policy]
 paused = false
