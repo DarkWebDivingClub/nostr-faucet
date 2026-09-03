@@ -6,6 +6,10 @@ export CARGO_HOME = $(CURDIR)/debian/.cargo
 	dh $@
 
 override_dh_auto_configure:
+	# mkdir first: a fresh clone has no .cargo/, and the redirect below
+	# fails without it. Only worked before because the directory happened
+	# to exist locally.
+	mkdir -p .cargo
 	cargo vendor vendor > .cargo/config.toml
 
 override_dh_auto_build:
