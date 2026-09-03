@@ -1,3 +1,11 @@
+nostr-faucet (0.1.1-1) resolute; urgency=medium
+
+  * Probe fee funding at startup rather than failing the first request.
+    Found by the 11.1 system test: a node without fallbackfee accepts
+    requests and fails every one of them.
+
+ -- DWDC <apt@dwdc.club>  Thu, 03 Sep 2026 14:30:00 +0200
+
 nostr-faucet (0.1.0-1) resolute; urgency=medium
 
   * Initial release. Mission 11.1.

@@ -1,0 +1,8 @@
+# dpkg-buildpackage working state. None of it belongs in the repo — and
+# git add -A in a built tree is how build output reaches a commit.
+.debhelper/
+.cargo/
+files
+debhelper-build-stamp
+*.substvars
+/nostr-faucet/
