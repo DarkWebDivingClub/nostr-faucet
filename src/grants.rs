@@ -1,4 +1,4 @@
-//! Capability grants, as per NCC.
+//! Capability grants, as per NNC.
 //!
 //! Per-key configuration is a kind-30078 event published by the owner, not
 //! something this service invents. The event's `d` tag addresses it:
@@ -11,7 +11,7 @@
 //! applies, so a grant means the same thing wherever it lands.
 //!
 //! This replaces a `set_policy` control method I had written before
-//! checking whether NCC already answered the question. It did.
+//! checking whether NNC already answered the question. It did.
 //!
 //! ## Open today, whitelist later
 //!

@@ -57,7 +57,7 @@ fn default_rpc_host() -> String {
 /// is what makes the policy open. Remove it and the faucet becomes a
 /// whitelist: a key with no grant has no allowance.
 ///
-/// Per-key configuration otherwise arrives as kind-30078 grants, per NCC —
+/// Per-key configuration otherwise arrives as kind-30078 grants, per NNC —
 /// this service does not invent a way to set it.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PolicyConfig {

@@ -191,7 +191,7 @@ mod tests {
         let d = decide(&req(Some(&p), &q, &r, &t, &tr, COIN, SEC)).unwrap_err();
         assert!(matches!(d, Denial::OverQuota { .. }));
         // Not "try again in N" — see the test below. A weekly refill rounds
-        // to zero in NCC's integer rate, so this allowance does not refill
+        // to zero in NNC's integer rate, so this allowance does not refill
         // on its own, and the message says so instead of naming a time that
         // would never arrive.
         assert!(d.message().contains("does not refill"), "{}", d.message());

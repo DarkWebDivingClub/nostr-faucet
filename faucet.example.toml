@@ -31,7 +31,7 @@ chain_label = "btk.signet"
 # whole [policy.default_profile] section and the faucet becomes a
 # whitelist — a key with no grant has no allowance.
 #
-# Per-key allowances otherwise arrive as kind-30078 grants, per NCC. This
+# Per-key allowances otherwise arrive as kind-30078 grants, per NNC. This
 # service does not invent a way to set them.
 
 [policy.default_profile.quota]

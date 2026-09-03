@@ -28,7 +28,7 @@ pub struct Faucet {
     pub cfg: Mutex<Config>,
     pub node: Bitcoind,
     pub buckets: Mutex<Buckets>,
-    /// Per-key allowances, as published by the owner. Per NCC.
+    /// Per-key allowances, as published by the owner. Per NNC.
     pub grants: Mutex<Grants>,
 }
 

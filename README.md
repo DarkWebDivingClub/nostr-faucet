@@ -56,7 +56,7 @@ change threaded through the server.
 
 One key, named in config, may pause, resume, change policy and read status
 — without a restart, because the first thing an open faucet meets is
-somebody testing its edges. Control travels on NCC (kinds 23198/23199), not
+somebody testing its edges. Control travels on NNC (kinds 23198/23199), not
 on the wallet channel, so a wallet connection can never be mistaken for an
 administrative one.
 

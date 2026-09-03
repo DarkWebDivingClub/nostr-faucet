@@ -1,4 +1,4 @@
-//! Token bucket, matching NCC's `RateLimitRule`.
+//! Token bucket, matching NNC's `RateLimitRule`.
 //!
 //! Deliberately the same shape and arithmetic `dln-node` uses, rather than a
 //! second rate limiter with its own semantics. Two limiters in one project

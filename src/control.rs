@@ -5,11 +5,11 @@
 //! should not be an SSH session into a container running a live chain.
 //!
 //! It does **not** set policy. Per-key allowances are kind-30078 grants,
-//! per NCC — see `grants.rs`. An earlier version of this had a `set_policy`
-//! method, written before checking whether NCC already answered that
+//! per NNC — see `grants.rs`. An earlier version of this had a `set_policy`
+//! method, written before checking whether NNC already answered that
 //! question. It did.
 //!
-//! Control travels on NCC (kinds 23198/23199), the same channel the rest of
+//! Control travels on NNC (kinds 23198/23199), the same channel the rest of
 //! the project uses for node control, rather than on the wallet channel —
 //! so a wallet connection can never be mistaken for an administrative one.
 
