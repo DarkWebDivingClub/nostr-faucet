@@ -1,6 +1,0 @@
-/target
-*.svg
-.idea/
-.vscode/
-perf.data
-perf.data.old
