@@ -1,9 +1,0 @@
-nostr-faucet (0.1.0-1) resolute; urgency=medium
-
-  * Initial release. Mission 11.1.
-  * NWC pay_bip321, on-chain branch, backed by bitcoind.
-  * Open policy: a per-key quota, a request rate limit, and a total cap
-    that is refused even to a key inside its own quota.
-  * Runs as its own user; the service dials out and listens on no port.
-
- -- DWDC <apt@dwdc.club>  Thu, 03 Sep 2026 13:00:00 +0200
