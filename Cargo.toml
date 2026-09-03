@@ -5,9 +5,17 @@ edition = "2021"
 description = "Ask a signet miner for coins over Nostr"
 license = "MIT"
 
+[lib]
+name = "nostr_faucet"
+path = "src/lib.rs"
+
 [[bin]]
 name = "nostr-faucet"
-path = "src/main.rs"
+path = "src/bin/nostr-faucet.rs"
+
+[[bin]]
+name = "nostr-faucet-client"
+path = "src/bin/nostr-faucet-client.rs"
 
 [dependencies]
 nostr-sdk = { git = "https://github.com/dukeh3/nostr.git", rev = "9ac9adc2" }

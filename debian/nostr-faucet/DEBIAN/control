@@ -1,0 +1,24 @@
+Package: nostr-faucet
+Version: 0.1.1-1
+Architecture: amd64
+Maintainer: DWDC <apt@dwdc.club>
+Installed-Size: 9533
+Depends: libc6 (>= 2.34), libgcc-s1 (>= 4.2), libssl3t64 (>= 3.0.0), adduser
+Section: net
+Priority: optional
+Description: ask a signet miner for coins over Nostr
+ An NWC wallet service implementing pay_bip321, on-chain branch, backed by a
+ bitcoind wallet rather than a Lightning node. A client sends a BIP-321
+ bitcoin: URI and the miner pays it.
+ .
+ One instance per miner. Each holds RPC to exactly one bitcoind and serves
+ exactly one chain, so a request for one chain cannot be paid from another's
+ miner and the RPC connection never leaves the machine.
+ .
+ The service dials out to a relay and never listens on a port, so installing
+ it beside a miner adds nothing to that host's firewall.
+ .
+ This process can spend the wallet it is pointed at. It runs as its own
+ unprivileged user, and its payouts are bounded by a per-key quota, a request
+ rate limit, and a total cap that is refused even to a key inside its own
+ quota.

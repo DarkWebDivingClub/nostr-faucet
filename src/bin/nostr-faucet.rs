@@ -4,12 +4,7 @@
 //! exactly one chain, so there is no path by which a request for one chain
 //! could be paid from another's miner, and the RPC never leaves the machine.
 
-mod bitcoind;
-mod config;
-mod control;
-mod policy;
-mod server;
-mod state;
+use nostr_faucet::{config, server};
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;

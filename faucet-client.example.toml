@@ -1,0 +1,25 @@
+# nostr-faucet-client — fill a treasury from a faucet.
+#
+#   nostr-faucet-client faucet-client.toml 1
+
+[faucet]
+relay = "wss://relay.dwdc.club"
+# The faucet's public key. One faucet per chain, so this is the one for
+# the chain your node below is on — they are not interchangeable.
+pubkey = "..."
+# Your key, kept between runs on purpose. A fresh key every run would sail
+# past the per-key quota, which is less clever than it is rude: the policy
+# is one coin a week per key, and renaming yourself weekly is helping
+# yourself to somebody else's coin.
+secret_key = "..."
+
+[bitcoind]
+# The node being funded. The client asks it for an address and then
+# watches it for the confirmation, which is why a wallet extension cannot
+# do this job — the address is not the client's to produce.
+rpc_host = "127.0.0.1"
+rpc_port = 48332
+rpc_user = "..."
+rpc_password = "..."
+wallet = "treasury"
+chain_label = "btk.signet"

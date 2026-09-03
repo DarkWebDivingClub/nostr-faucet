@@ -80,8 +80,25 @@ Fee estimation failed. Fallbackfee is disabled. …
 ## Running
 
 ```
-nostr-faucet /etc/nostr-faucet/faucet.toml
+nostr-faucet /etc/nostr-faucet/faucet.toml            # the server
+nostr-faucet-client faucet-client.toml 1              # ask for a coin
 ```
+
+The client runs the inverse of a normal NWC flow, which is why a wallet
+extension cannot stand in for it. An extension has its own wallet and
+would ask a faucet to pay an address it already controls; a treasury is a
+`bitcoind` wallet, so the address belongs to a node the client reaches
+over RPC:
+
+```
+     bitcoind RPC                  NWC over Nostr
+treasury ──getnewaddress──▶ client ──pay_bip321──▶ faucet ──▶ miner pays
+```
+
+It waits for the confirmation, because a txid is a promise rather than
+money, and it reports the faucet's refusal verbatim — a refusal and a
+faucet that is simply down are different problems, and the client says
+which it saw.
 
 See `faucet.example.toml`. Every limit is configuration rather than a
 constant, deliberately: a one-week window cannot be tested against real
