@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  configure)
+    # Its own unprivileged user. The config holds RPC credentials that can
+    # spend a miner's wallet, so it is owned by that user and nobody else.
+    if ! getent passwd nostr-faucet >/dev/null; then
+      adduser --system --group --no-create-home --home /nonexistent \
+              --gecos "nostr-faucet" nostr-faucet
+    fi
+    mkdir -p /etc/nostr-faucet
+    chown root:nostr-faucet /etc/nostr-faucet
+    chmod 0750 /etc/nostr-faucet
+    ;;
+esac
+
+
+exit 0

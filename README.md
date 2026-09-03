@@ -62,6 +62,21 @@ administrative one.
 
 If no control key is configured, **nobody** can control the faucet.
 
+## What the node it points at must have
+
+**`fallbackfee`**, in the node's `bitcoin.conf`. A chain with no
+transaction history cannot estimate a fee, and without a fallback every
+`sendtoaddress` fails outright. The faucet probes this at startup — by
+funding a transaction it never signs or broadcasts — and says so before
+it takes a single request:
+
+```
+this node cannot fund a payment, so every request will fail —
+Fee estimation failed. Fallbackfee is disabled. …
+```
+
+**`rpcuser` and `rpcpassword`.** Cookie authentication is not supported.
+
 ## Running
 
 ```
