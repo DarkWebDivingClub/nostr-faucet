@@ -1,3 +1,26 @@
+nostr-faucet (0.1.2-1) resolute; urgency=medium
+
+  * The faucet is a nostr-ln consumer. Five modules deleted: grants,
+    policy, rate_limit, state and control were a private rendering of a
+    protocol that nostr-ln now renders once, and had diverged from the
+    specification in five ways.
+  * pay_onchain replaces pay_bip321. The faucet cannot conform to
+    NWC-321, whose pay MUSTs support lightning or lno instructions, and
+    should not want to: that method obliges URI parsing and pop/req-pop
+    proof-of-payment handling on a server that holds RPC to a miner
+    wallet.
+  * NIP-44 replaces NIP-04 in the client.
+  * CONFIG IS NOT COMPATIBLE. `owners` replaces `control_pubkey`, and the
+    whole [policy] section is gone — per-key policy is kind-30198 grants
+    published by an owner. Only [faucet.total_cap] remains, because it is
+    a property of the faucet rather than of anyone asking. See
+    /usr/share/doc/nostr-faucet/faucet.example.toml.
+  * There is no pause, resume or status method. They were never in any
+    specification. An open faucet is an OTHERS grant, and revoking it is
+    what closing the faucet means — live, with no restart.
+
+ -- DWDC <apt@dwdc.club>  Sat, 06 Sep 2026 20:15:00 +0200
+
 nostr-faucet (0.1.1-1) resolute; urgency=medium
 
   * Probe fee funding at startup rather than failing the first request.
