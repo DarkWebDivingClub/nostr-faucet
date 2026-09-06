@@ -2,16 +2,25 @@
 #
 # This process can spend the miner's wallet. Everything below is chosen with
 # that in mind.
+#
+# There is very little here, and that is the point. Who may ask, how often
+# and how much are **grants**, published by an owner as kind-30198 events —
+# see "Policy" at the bottom. The faucet does not invent a way to set them,
+# because NNC already answered the question.
 
 [nostr]
 # The faucet dials out. It never listens on a port, so running it beside a
 # miner adds nothing to that host's firewall.
 relay = "wss://relay.dwdc.club"
 secret_key = "nsec1..."
-# The only key that may pause, resume or change policy. If this is absent,
-# nobody can control the faucet — not everybody. Failing closed is the only
-# safe default for a service that can spend a wallet.
-control_pubkey = "..."
+
+# The keys whose grants this faucet accepts. Nothing else can authorize
+# anything, whatever it publishes to the relay.
+#
+# EMPTY ACCEPTS NOTHING, and the faucet then answers nothing. That is
+# deliberate: absent configuration fails closed rather than being read as
+# "any owner", which is dln-node#1.
+owners = ["npub1..."]
 
 [bitcoind]
 # Keep this on localhost. It is the whole reason there is one faucet per
@@ -25,39 +34,42 @@ wallet = "signer"
 # apart in logs and in get_info.
 chain_label = "btk.signet"
 
-[policy]
-# The allowance a key gets when it holds no grant of its own. This is what
-# makes the faucet open: a stranger is treated as if granted it. Remove the
-# whole [policy.default_profile] section and the faucet becomes a
-# whitelist — a key with no grant has no allowance.
+[faucet.total_cap]
+# What the faucet pays out in total, across every key.
 #
-# Per-key allowances otherwise arrive as kind-30078 grants, per NNC. This
-# service does not invent a way to set them.
-
-[policy.default_profile.quota]
-# NOTE: rate_per_micro is an integer number of sats per MICROSECOND, so it
-# cannot express a weekly refill. One coin a week is 0.000165 sat/us, which
-# truncates to 0 — the smallest non-zero rate expressible is a million sat
-# a second.
+# The one limit that is not a grant, and cannot be. A grant answers "may
+# this key do this", which the access layer enforces per key. This answers
+# "can the faucet afford it at all" — a property of the faucet, closer to
+# insufficient balance than to authorization.
 #
-# So this reads as "one coin, until the operator republishes the grant",
-# and the faucet's refusal says exactly that rather than promising a refill
-# that never arrives.
-rate_per_micro = 0
-max_capacity = 100000000
-
-[policy.default_profile.access_rate]
-# Requests, paid or refused. A script that asks a thousand times and is
-# refused a thousand times still costs a thousand round trips.
-rate_per_micro = 0
-max_capacity = 20
-
-[policy.total_cap]
-# What the faucet pays out in total, across every key. The control that
-# matters: a per-key quota is advisory against anyone willing to generate
-# keys, which costs nothing on Nostr.
-rate_per_micro = 0
+# It is also the control that actually matters. A per-key quota is advisory
+# against anyone willing to generate keys, which costs nothing on Nostr.
+# This is the number that bounds the loss.
+#
+# A token bucket: `amount` sats refill every `per_secs`, up to
+# `max_capacity`. Below is 100 coins a day, holding at most 100.
+amount = 10000000000
+per_secs = 86400
 max_capacity = 10000000000
 
-[policy]
-paused = false
+# ── Policy ───────────────────────────────────────────────────────────────
+#
+# Not here. An owner publishes a kind-30198 grant per key:
+#
+#   {
+#     "kind": 30198,
+#     "pubkey": "<owner>",
+#     "tags": [["d", "<faucet_pubkey>:<asker_pubkey>"],
+#              ["p", "<faucet_pubkey>"]],
+#     "content": "{\"methods\":{\"OTHERS\":{}},
+#                  \"quota\":{\"amount\":100000000,
+#                             \"per_secs\":604800,
+#                             \"max_capacity\":100000000}}"
+#   }
+#
+# One coin a week, and every method the faucet implements.
+#
+# An OPEN faucet uses the literal asker `OTHERS`, which applies to any key
+# with no grant of its own. Revoking that grant — publishing it with content
+# `{}` — is how a faucet closes. There is no pause method, and the change
+# takes effect without a restart, because a grant is an event.
