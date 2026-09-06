@@ -9,16 +9,17 @@
 //!
 //! ```text
 //!      bitcoind RPC                  NWC over Nostr
-//! treasury ──getnewaddress──▶ client ──pay_bip321──▶ faucet ──▶ miner pays
+//! treasury ──getnewaddress──▶ client ──pay_onchain──▶ faucet ──▶ miner pays
 //! ```
 //!
 //! Steps one and four both need RPC to the node being funded, which is
 //! exactly what an extension does not have.
 
 use anyhow::{Context, Result};
+use nostr_ln::nwc::methods::PayOnchainResponse;
+use nostr_ln::nwc::WalletMethod;
 use nostr_sdk::prelude::*;
-use nwc::nostr::nips::nip04;
-use nwc::nostr::nips::nip47::{Method, PayBip321Request, Request, RequestParams, Response};
+use serde_json::{json, Value};
 use serde::Deserialize;
 use std::path::Path;
 use std::time::Duration;
@@ -76,34 +77,37 @@ pub async fn fill(cfg: &ClientConfig, amount_btc: f64, wait: bool) -> Result<Out
         .context("could not get an address from the node being funded")?;
     tracing::info!("asking for {amount_btc} to {address}");
 
-    // 2. A BIP-321 URI is the payment request.
-    let uri = format!("bitcoin:{address}?amount={amount_btc}");
-
-    // 3. Ask.
+    // 2. Ask.
+    //
+    // An address and an amount — no BIP-321 URI to build, and none for the
+    // faucet to parse. `pay_onchain` is the method a wallet with no
+    // Lightning can implement, and the one whose whole surface is two
+    // fields.
+    let amount_sats = (amount_btc * 100_000_000.0).round() as u64;
     let resp = round_trip(
         &cfg.faucet.relay,
         &keys,
         &faucet,
-        Request {
-            method: Method::PayBip321,
-            params: RequestParams::PayBip321(PayBip321Request { uri }),
-        },
+        WalletMethod::PayOnchain,
+        json!({ "address": address, "amount_sats": amount_sats }),
     )
     .await?;
 
-    if let Some(err) = resp.error {
+    if let Some(err) = resp.get("error").filter(|e| !e.is_null()) {
         // The faucet's reason, verbatim. Most of what goes wrong here is
         // somebody else's decision — not listed, over quota, faucet dry —
         // and turning that into our own words only loses information.
-        anyhow::bail!("the faucet said no: {}", err.message);
+        let message = err
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("no message");
+        anyhow::bail!("the faucet said no: {message}");
     }
 
-    let value = serde_json::to_value(&resp)?;
-    let txid = value
-        .pointer("/result/txid")
-        .and_then(|t| t.as_str())
-        .context("the faucet answered without a txid")?
-        .to_string();
+    let result = resp.get("result").context("the faucet answered with neither result nor error")?;
+    let paid: PayOnchainResponse = serde_json::from_value(result.clone())
+        .context("the faucet's answer is not a pay_onchain response")?;
+    let txid = paid.txid;
 
     if !wait {
         return Ok(Outcome { txid, address, confirmations: None });
@@ -117,51 +121,64 @@ pub async fn fill(cfg: &ClientConfig, amount_btc: f64, wait: bool) -> Result<Out
     Ok(Outcome { txid, address, confirmations: Some(confirmations) })
 }
 
+/// Send one NWC request and read its answer.
+///
+/// Hand-rolled because `nostr-ln` has no NWC client yet — that belongs
+/// with mission 11.2, which is about this client. What matters here is
+/// that it is **NIP-44**: this used NIP-04 until 2026-09-06, which is
+/// [dln-node#3](https://github.com/DarkWebDivingClub/dln-node/issues/3)'s
+/// bug in another repository, and `nostr-ln` refuses a NIP-04 request
+/// rather than guessing.
 async fn round_trip(
     relay: &str,
     us: &Keys,
     faucet: &PublicKey,
-    req: Request,
-) -> Result<Response> {
+    method: WalletMethod,
+    params: Value,
+) -> Result<Value> {
+    const REQUEST_KIND: u16 = 23194;
+    const RESPONSE_KIND: u16 = 23195;
+
     let client = Client::builder().signer(us.clone()).build();
     client.add_relay(relay).await?;
     client.connect().await;
 
+    // Before the send: a response can arrive before a later subscription.
     client
         .subscribe(
             Filter::new()
-                .kind(Kind::WalletConnectResponse)
+                .kind(Kind::Custom(RESPONSE_KIND))
                 .pubkey(us.public_key())
                 .since(Timestamp::now()),
         )
         .await?;
 
-    let encrypted = nip04::encrypt(us.secret_key(), faucet, serde_json::to_string(&req)?)?;
-    client
-        .send_event_builder(
-            EventBuilder::new(Kind::WalletConnectRequest, encrypted).tag(Tag::public_key(*faucet)),
-        )
+    let payload = json!({ "method": method.as_str(), "params": params }).to_string();
+    let ciphertext = us.nip44_encrypt(faucet, &payload).await?;
+    let event = EventBuilder::new(Kind::Custom(REQUEST_KIND), ciphertext)
+        .tag(Tag::public_key(*faucet))
+        .sign(us)
         .await?;
+    let request_id = event.id;
+    client.send_event(&event).await?;
 
-    let mut notifications = client.notifications();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        // Silence is not refusal. A faucet that is down and one that said no
-        // are different problems with different fixes, and conflating them
-        // sends people looking in the wrong place.
-        anyhow::ensure!(
-            !remaining.is_zero(),
-            "no answer from the faucet in 45s — it may be down, on another relay, \
-             or not the key in faucet.pubkey. This is not a refusal."
-        );
-        let next = tokio::time::timeout(remaining, notifications.next()).await;
-        let Ok(Some(ClientNotification::Event { event, .. })) = next else { continue };
-        if event.kind != Kind::WalletConnectResponse || event.pubkey != *faucet {
-            continue;
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        anyhow::ensure!(!left.is_zero(), "the faucet did not answer within 30s");
+        let found = client
+            .fetch_events(
+                Filter::new()
+                    .kind(Kind::Custom(RESPONSE_KIND))
+                    .pubkey(us.public_key())
+                    .event(request_id),
+            )
+            .timeout(Duration::from_secs(2))
+            .await?;
+        if let Some(e) = found.first() {
+            let plain = us.nip44_decrypt(&e.pubkey, &e.content).await?;
+            client.shutdown().await;
+            return Ok(serde_json::from_str(&plain)?);
         }
-        let plaintext = nip04::decrypt(us.secret_key(), faucet, &event.content)?;
-        let _ = client.disconnect().await;
-        return Ok(serde_json::from_str(&plaintext)?);
     }
 }

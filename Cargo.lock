@@ -13,17 +13,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aes"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
-dependencies = [
- "cfg-if",
- "cipher",
- "cpufeatures",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -81,15 +70,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
-name = "base58ck"
-version = "0.1.101"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "365c0acd5b2e8dd0111a46c4faea83fb3cfb6e39a49a7c73a06e090db7b2eff0"
-dependencies = [
- "bitcoin_hashes",
-]
-
-[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -108,15 +88,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32637268377fc7b10a8c6d51de3e7fba1ce5dd371a96e342b34e6078db558e7f"
 
 [[package]]
-name = "bip321"
-version = "0.1.3"
-source = "git+https://github.com/DarkWebDivingClub/bip321.git?rev=fcd4864#fcd486478784ecce51c61789a0eb1e09f6c4bbba"
-dependencies = [
- "bitcoin",
- "percent-encoding",
-]
-
-[[package]]
 name = "bip39"
 version = "2.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -125,22 +96,6 @@ dependencies = [
  "bitcoin_hashes",
  "serde",
  "unicode-normalization",
-]
-
-[[package]]
-name = "bitcoin"
-version = "0.32.102"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb0ce8bd5baaa0d303a19915a6d93afed161f528654e42da2a7a97d05c59499a"
-dependencies = [
- "base58ck",
- "bech32",
- "bitcoin-io",
- "bitcoin-units",
- "bitcoin_hashes",
- "hex-conservative 0.2.3",
- "hex_lit",
- "secp256k1",
 ]
 
 [[package]]
@@ -165,15 +120,6 @@ name = "bitcoin-io"
 version = "0.1.101"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb5de036369d1ac59d3c1819ebc4d850f89466f5401c571a285b6ed564a4cb78"
-dependencies = [
- "bitcoin-consensus-encoding",
-]
-
-[[package]]
-name = "bitcoin-units"
-version = "0.1.101"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cb95693f371d089a4b5b6fc41c6f3ea6e01ee8c15388335dfac8ea685173b51"
 dependencies = [
  "bitcoin-consensus-encoding",
 ]
@@ -631,12 +577,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hex_lit"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3011d1213f159867b13cfd6ac92d2cd5f1345762c63be3554e84092d85a50bbd"
-
-[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1022,7 +962,6 @@ name = "nostr"
 version = "0.44.1"
 source = "git+https://github.com/dukeh3/nostr.git?rev=9ac9adc2#9ac9adc2fbd8cbdb0767d22f26b183d65bba71f4"
 dependencies = [
- "aes",
  "base64",
  "bech32",
  "bip39",
@@ -1058,9 +997,8 @@ name = "nostr-faucet"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bip321",
+ "nostr-ln",
  "nostr-sdk",
- "nwc",
  "reqwest",
  "serde",
  "serde_json",
@@ -1076,6 +1014,31 @@ version = "0.44.0"
 source = "git+https://github.com/dukeh3/nostr.git?rev=9ac9adc2#9ac9adc2fbd8cbdb0767d22f26b183d65bba71f4"
 dependencies = [
  "nostr",
+]
+
+[[package]]
+name = "nostr-ln"
+version = "0.1.0"
+source = "git+https://github.com/DarkWebDivingClub/nostr-ln.git?branch=master#9db54f168c7328e13e95b0d8d3873148cc26c0cc"
+dependencies = [
+ "futures",
+ "nostr",
+ "nostr-ln-macros",
+ "nostr-sdk",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nostr-ln-macros"
+version = "0.1.0"
+source = "git+https://github.com/DarkWebDivingClub/nostr-ln.git?branch=master#9db54f168c7328e13e95b0d8d3873148cc26c0cc"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -1104,16 +1067,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "nwc"
-version = "0.44.0"
-source = "git+https://github.com/dukeh3/nostr.git?rev=9ac9adc2#9ac9adc2fbd8cbdb0767d22f26b183d65bba71f4"
-dependencies = [
- "nostr",
- "nostr-sdk",
- "tracing",
 ]
 
 [[package]]
@@ -1511,7 +1464,6 @@ version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9465315bc9d4566e1724f0fffcbcc446268cb522e60f9a27bcded6b19c108113"
 dependencies = [
- "bitcoin_hashes",
  "secp256k1-sys",
  "serde",
 ]

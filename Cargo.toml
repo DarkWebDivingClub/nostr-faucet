@@ -18,9 +18,8 @@ name = "nostr-faucet-client"
 path = "src/bin/nostr-faucet-client.rs"
 
 [dependencies]
+nostr-ln = { git = "https://github.com/DarkWebDivingClub/nostr-ln.git", branch = "master", features = ["transport"] }
 nostr-sdk = { git = "https://github.com/dukeh3/nostr.git", rev = "9ac9adc2" }
-nwc = { git = "https://github.com/dukeh3/nostr.git", rev = "9ac9adc2" }
-bip321 = { git = "https://github.com/DarkWebDivingClub/bip321.git", rev = "fcd4864" }
 
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
