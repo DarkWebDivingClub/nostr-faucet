@@ -5,6 +5,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
+use std::time::Duration;
 
 use crate::config::BitcoindConfig;
 
@@ -102,6 +103,37 @@ impl Bitcoind {
                 .unwrap_or("")
                 .to_string(),
         })
+    }
+
+    /// A fresh receiving address on the node being funded.
+    ///
+    /// bech32 explicitly — Knots defaults `getnewaddress` to legacy P2PKH.
+    pub async fn new_address(&self) -> Result<String> {
+        let a = self.call("getnewaddress", json!(["", "bech32"])).await?;
+        a.as_str()
+            .map(String::from)
+            .ok_or_else(|| anyhow!("getnewaddress did not return a string"))
+    }
+
+    /// Watch for a transaction to confirm. Fails loudly on timeout: a
+    /// client that gives up quietly leaves someone unsure whether they have
+    /// been paid.
+    pub async fn wait_for_confirmation(&self, txid: &str, timeout: Duration) -> Result<u64> {
+        let started = std::time::Instant::now();
+        while started.elapsed() < timeout {
+            if let Ok(tx) = self.call("gettransaction", json!([txid])).await {
+                if let Some(c) = tx.get("confirmations").and_then(|c| c.as_i64()) {
+                    if c >= 1 {
+                        return Ok(c as u64);
+                    }
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+        Err(anyhow!(
+            "{txid} did not confirm within {timeout:?}. The faucet paid, so the \
+             transaction exists — this chain is slow or stalled, not broken."
+        ))
     }
 
     /// Can this wallet actually pay?

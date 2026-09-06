@@ -1,19 +1,23 @@
 //! Configuration.
 //!
-//! Every limit is configuration rather than a constant, and that is a
-//! deliberate testability requirement: a "one coin a week" policy cannot be
-//! tested against real time. The suite sets `window_secs` to seconds and
-//! `total_cap_sat` to a few coins, and exhausts both inside one run.
+//! Almost everything that used to live here is now a **grant**: who may
+//! ask, how often, and how much. The faucet does not invent a way to set
+//! per-key policy, because NNC already answered that question — the owner
+//! publishes kind `30198` and the faucet obeys.
+//!
+//! What is left is what a grant cannot express.
+
+use std::path::Path;
 
 use anyhow::{Context, Result};
+use nostr_ln::RateLimitRule;
 use serde::Deserialize;
-use std::path::Path;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub nostr: NostrConfig,
     pub bitcoind: BitcoindConfig,
-    pub policy: PolicyConfig,
+    pub faucet: FaucetConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -22,10 +26,17 @@ pub struct NostrConfig {
     pub relay: String,
     /// The faucet's own secret key, hex or nsec.
     pub secret_key: String,
-    /// The key permitted to change policy, pause and revoke. Everything it
-    /// can do is refused to every other key, including a key that is
-    /// otherwise inside its quota.
-    pub control_pubkey: Option<String>,
+    /// The keys whose grants this faucet accepts.
+    ///
+    /// **Empty accepts nothing**, and therefore answers nothing.
+    /// `nostr-ln` enforces that: absent configuration fails closed rather
+    /// than treating "no owners" as "any owner", which is
+    /// [dln-node#1](https://github.com/DarkWebDivingClub/dln-node/issues/1).
+    ///
+    /// Renamed from `control_pubkey` — it is plural, and it grants rather
+    /// than controls.
+    #[serde(default)]
+    pub owners: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -49,28 +60,21 @@ fn default_rpc_host() -> String {
     "127.0.0.1".to_string()
 }
 
+/// What a grant cannot say.
 #[derive(Debug, Clone, Deserialize)]
-pub struct PolicyConfig {
-    /// What one key may take per window.
-    pub per_key_sat: u64,
-    /// The window, in seconds. A week in production; seconds in tests.
-    pub window_secs: u64,
-    /// What the faucet will pay out in total per window, across every key.
+pub struct FaucetConfig {
+    /// What this faucet pays out in total, across every key.
     ///
-    /// **This is the control that matters.** A per-key quota is advisory
+    /// **Deliberately not a grant.** A grant answers "may this controller
+    /// do this", and the access layer enforces it per controller. This
+    /// answers "can this faucet afford it at all", which is a property of
+    /// the faucet rather than of anyone asking — closer to insufficient
+    /// balance than to authorization.
+    ///
+    /// It is also the control that matters. A per-key quota is advisory
     /// against anyone willing to generate keys, which costs nothing on
-    /// Nostr. The cap bounds the damage regardless, and is refused even to
-    /// a key inside its own quota.
-    pub total_cap_sat: u64,
-    /// Requests one key may make per window, paid or refused.
-    ///
-    /// Payout limits do not bound a script that asks a thousand times and
-    /// is refused a thousand times — that still costs the faucet and the
-    /// relay a thousand round trips.
-    pub max_requests_per_window: u32,
-    /// Start paused. The control key can unpause without a restart.
-    #[serde(default)]
-    pub paused: bool,
+    /// Nostr; this is the number that bounds the loss.
+    pub total_cap: RateLimitRule,
 }
 
 impl Config {
@@ -84,19 +88,21 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(self.policy.window_secs > 0, "policy.window_secs must be > 0");
-        anyhow::ensure!(self.policy.per_key_sat > 0, "policy.per_key_sat must be > 0");
         anyhow::ensure!(
-            self.policy.total_cap_sat >= self.policy.per_key_sat,
-            "policy.total_cap_sat ({}) is below per_key_sat ({}) — no request could ever \
-             succeed, since the first payout would exceed the cap",
-            self.policy.total_cap_sat,
-            self.policy.per_key_sat
+            self.faucet.total_cap.max_capacity > 0,
+            "faucet.total_cap.max_capacity must be > 0, or no request could ever succeed"
         );
         anyhow::ensure!(
-            self.policy.max_requests_per_window > 0,
-            "policy.max_requests_per_window must be > 0"
+            self.faucet.total_cap.is_valid(),
+            "faucet.total_cap is not a valid rate limit rule"
         );
+        if self.nostr.owners.is_empty() {
+            tracing::warn!(
+                "no nostr.owners — this faucet accepts no grants and will therefore \
+                 refuse every request. That is fail-closed, not a bug, but it is \
+                 probably not what was meant."
+            );
+        }
         if self.bitcoind.rpc_host != "127.0.0.1" && self.bitcoind.rpc_host != "localhost" {
             tracing::warn!(
                 "bitcoind.rpc_host is {} — this connection can spend the miner's wallet \
