@@ -112,3 +112,32 @@ locally spun regtest chains — the faucet cannot tell regtest from signet,
 so that is a faithful test of everything it does except block timing.
 
 [nostr]: https://github.com/dukeh3/nostr
+
+## Updating a dependency
+
+This repository **vendors** its dependencies for reproducible packaging, so
+`cargo update` is not enough and — worse — it does not fail loudly:
+
+```
+error: the source ... requires a lock file to be present first
+       before it can be used against vendored source code
+```
+
+If you miss that line, the build **succeeds against the old vendored
+code**. That is the trap: not a broken build, a passing one running
+something you already fixed.
+
+The procedure:
+
+```sh
+mv .cargo/config.toml /tmp/           # turn off source replacement
+cargo update -p <crate>               # move the lockfile
+rm -rf vendor
+cargo vendor > .cargo/config.toml     # re-vendor and regenerate the config
+cargo check --offline                 # prove it builds from vendor
+```
+
+Found on 2026-09-06 during mission 13.4: a fix to `nostr-ln` was pushed,
+the pin appeared to move, and an e2e scenario went on failing for the
+reason the fix addressed — because the vendored copy still held the old
+pipeline.
