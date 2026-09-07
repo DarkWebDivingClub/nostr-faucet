@@ -57,3 +57,72 @@ fn the_example_config_names_nothing_that_was_removed() {
         );
     }
 }
+
+#[test]
+fn the_rpc_host_defaults_to_loopback() {
+    // This connection can spend the miner's wallet. It is the whole reason
+    // there is one faucet per miner rather than one serving both chains,
+    // and the default must not be the permissive one.
+    let toml = r#"
+[nostr]
+relay = "ws://localhost:1"
+secret_key = "0000000000000000000000000000000000000000000000000000000000000001"
+owners = ["0000000000000000000000000000000000000000000000000000000000000002"]
+
+[bitcoind]
+rpc_port = 1
+rpc_user = "u"
+rpc_password = "p"
+wallet = "w"
+chain_label = "l"
+
+[faucet.total_cap]
+amount = 1
+per_secs = 1
+max_capacity = 1
+"#;
+    let dir = std::env::temp_dir().join("nostr-faucet-default-host");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("faucet.toml");
+    std::fs::write(&path, toml).unwrap();
+
+    let cfg = nostr_faucet::config::Config::load(&path).expect("parses without rpc_host");
+    assert_eq!(
+        cfg.bitcoind.rpc_host, "127.0.0.1",
+        "an omitted rpc_host must default to loopback, never to a wildcard \
+         or a hostname that could resolve off-box"
+    );
+}
+
+#[test]
+fn a_faucet_with_no_owners_starts_and_grants_nothing() {
+    // Absent configuration fails closed. Treating "no owners" as "any
+    // owner" is dln-node#1, and the direction is what matters: a faucet
+    // that refuses everything is a nuisance, one that accepts everything
+    // spends a miner's wallet.
+    let toml = r#"
+[nostr]
+relay = "ws://localhost:1"
+secret_key = "0000000000000000000000000000000000000000000000000000000000000001"
+
+[bitcoind]
+rpc_host = "127.0.0.1"
+rpc_port = 1
+rpc_user = "u"
+rpc_password = "p"
+wallet = "w"
+chain_label = "l"
+
+[faucet.total_cap]
+amount = 1
+per_secs = 1
+max_capacity = 1
+"#;
+    let dir = std::env::temp_dir().join("nostr-faucet-no-owners");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("faucet.toml");
+    std::fs::write(&path, toml).unwrap();
+
+    let cfg = nostr_faucet::config::Config::load(&path).expect("an absent owners list parses");
+    assert!(cfg.nostr.owners.is_empty(), "and yields no owners, rather than a default one");
+}
