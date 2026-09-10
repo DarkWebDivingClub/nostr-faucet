@@ -22,4 +22,4 @@ rpc_port = 48332
 rpc_user = "..."
 rpc_password = "..."
 wallet = "treasury"
-chain_label = "btk.signet"
+chain_label = "xbt.signet"

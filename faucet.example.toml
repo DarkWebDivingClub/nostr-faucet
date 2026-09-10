@@ -32,7 +32,7 @@ rpc_password = "..."
 wallet = "signer"
 # Both signets report network "signet", so this label is what tells them
 # apart in logs and in get_info.
-chain_label = "btk.signet"
+chain_label = "xbt.signet"
 
 [faucet.total_cap]
 # What the faucet pays out in total, across every key.
