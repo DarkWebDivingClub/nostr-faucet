@@ -72,7 +72,18 @@ impl WalletService for FaucetService {
                 .map_err(|e| NncError::new(ErrorCode::Internal, format!("{e:#}")))?;
             // Published core's get_balance is one field, in msats. A faucet
             // holds on-chain funds and no channels, so this is all of it.
-            Ok(GetBalanceResponse { balance: status.spendable_sat.saturating_mul(1_000) })
+            //
+            // And it says so: `nwc-onchain.md`'s two extension fields exist
+            // for exactly this wallet — the one the specification's own
+            // motivation names — so a client can see that none of the
+            // balance is in channels rather than having to infer it.
+            // `balance` keeps its core meaning, so a client that does not
+            // know the extension reads it and is not wrong.
+            Ok(GetBalanceResponse {
+                balance: status.spendable_sat.saturating_mul(1_000),
+                lightning_balance: Some(0),
+                onchain_balance_sats: Some(status.spendable_sat),
+            })
         })
     }
 
@@ -91,6 +102,12 @@ impl WalletService for FaucetService {
                 // `pay_onchain`'s specification has no number yet, so it
                 // appears in `methods` and nowhere else.
                 extensions: None,
+                // This faucet sends no notifications, so it advertises
+                // none. NWC-02.
+                notifications: None,
+                // And it pays no BIP-321 URI, so it claims no instruction
+                // types. `nwc-bip321.md`.
+                bip321_methods: None,
             })
         })
     }
