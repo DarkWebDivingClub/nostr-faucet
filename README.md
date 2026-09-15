@@ -107,7 +107,7 @@ time, so the test suite sets it to seconds.
 ## Tests
 
 `cargo test` covers the ledger and the policy decision. End-to-end
-scenarios live in `nostr-faucet-e2e`, which runs both faucets against
+scenarios live in `nostr-faucet-e2e-test`, which runs both faucets against
 locally spun regtest chains — the faucet cannot tell regtest from signet,
 so that is a faithful test of everything it does except block timing.
 
